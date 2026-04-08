@@ -1,0 +1,10 @@
+model_name: distilbert-base-uncased
+train_path: data/train.tsv
+valid_path: data/valid.tsv
+output_dir: outputs/checkpoints
+max_length: 256
+batch_size: 8
+epochs: 3
+learning_rate: 2.0e-5
+num_labels: 2
+seed: 42
