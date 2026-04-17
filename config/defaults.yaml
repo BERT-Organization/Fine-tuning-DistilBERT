@@ -1,10 +1,23 @@
+# ── Model ──────────────────────────────────────────────────────────────────────
 model_name: distilbert-base-uncased
-train_path: data/train.tsv
-valid_path: data/valid.tsv
-output_dir: outputs/checkpoints
-max_length: 256
+num_labels: 2
+dropout: 0.1
+freeze_encoder: false   # true = chỉ train classification head
+
+# ── Data ───────────────────────────────────────────────────────────────────────
+dataset_name: taidng/UIT-ViQuAD2.0
+max_length: 512
+cache_dir: null
+
+# ── Training loop ──────────────────────────────────────────────────────────────
 batch_size: 8
 epochs: 3
 learning_rate: 2.0e-5
-num_labels: 2
+weight_decay: 0.01
+warmup_ratio: 0.1     # 10% tổng steps để warmup LR
+max_grad_norm: 1.0    # gradient clipping
+
+# ── Output ─────────────────────────────────────────────────────────────────────
+output_dir: outputs/checkpoints
 seed: 42
+
