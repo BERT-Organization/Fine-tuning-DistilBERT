@@ -1,8 +1,8 @@
 from .config import build_config
-from .modeling import DistilBertForClassification, build_model
+from .modeling import DistilBertForQuestionAnswering, build_model
 
 __all__ = [
     "build_config",
-    "DistilBertForClassification",
+    "DistilBertForQuestionAnswering",
     "build_model",
 ]

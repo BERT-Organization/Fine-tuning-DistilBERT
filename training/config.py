@@ -65,6 +65,6 @@ class TrainingConfig:
         """Lưu config ra file YAML."""
         import dataclasses
         Path(path).write_text(
-            yaml.dump(dataclasses.asdict(self), allow_unicode=True, sort_keys=False),
+            yaml.dump(data=dataclasses.asdict(self), allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )

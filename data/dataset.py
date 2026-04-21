@@ -36,8 +36,8 @@ def prepare_train_features(
     pad_on_right = tokenizer.padding_side == "right"
 
     tokenized_examples = tokenizer(
-        examples[question_column if pad_on_right else context_column],
-        examples[context_column if pad_on_right else question_column],
+        text=examples[question_column if pad_on_right else context_column],
+        text_pair=examples[context_column if pad_on_right else question_column],
         truncation="only_second" if pad_on_right else "only_first",
         max_length=max_length,
         stride=doc_stride,
@@ -55,7 +55,7 @@ def prepare_train_features(
     for i, offsets in enumerate(offset_mapping):
         input_ids = tokenized_examples["input_ids"][i]
         cls_index = input_ids.index(tokenizer.cls_token_id)
-        sequence_ids = tokenized_examples.sequence_ids(i)
+        sequence_ids = tokenized_examples.sequence_ids(batch_index=i)
 
         sample_index = sample_mapping[i]
         answers = examples[answers_column][sample_index]

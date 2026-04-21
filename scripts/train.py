@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Sequence
 
 from training.config import TrainingConfig
 from training.trainer import train
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fine-tune DistilBERT on UIT-ViQuAD2.0")
     parser.add_argument(
         "--config",
@@ -38,15 +39,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--question_column",  type=str)
     parser.add_argument("--context_column",   type=str)
     parser.add_argument("--answers_column",   type=str)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> None:
-    args = parse_args()
+def main(
+    argv: Sequence[str] | None = None,
+    config: TrainingConfig | None = None,
+) -> None:
+    args = parse_args(argv=argv)
 
     # Load config từ YAML
-    config_path = Path(args.config)
-    config = TrainingConfig.from_yaml(config_path) if config_path.exists() else TrainingConfig()
+    if config is None:
+        config_path = Path(args.config)
+        config = TrainingConfig.from_yaml(path=config_path) if config_path.exists() else TrainingConfig()
 
     # Override từ CLI nếu được cung cấp
     cli_overrides = {
@@ -56,7 +61,7 @@ def main() -> None:
     for key, value in cli_overrides.items():
         setattr(config, key, value)
 
-    train(config)
+    train(config=config)
 
 
 if __name__ == "__main__":

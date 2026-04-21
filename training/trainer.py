@@ -14,22 +14,22 @@ from .optimizer import build_optimizer, build_scheduler
 
 
 def set_seed(seed: int) -> None:
-    torch.manual_seed(seed)
+    torch.manual_seed(seed=seed)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+        torch.cuda.manual_seed_all(seed=seed)
 
 
 def train(config: TrainingConfig) -> None:
-    set_seed(config.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    set_seed(seed=config.seed)
+    device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     use_amp = config.use_amp and device.type == "cuda"
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     print(f"device: {device}")
     print(f"config: {config}\n")
 
     # ── Data ───────────────────────────────────────────────────────────────────
-    tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-    datasets = build_qa_datasets(tokenizer, config)
+    tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=config.model_name)
+    datasets = build_qa_datasets(tokenizer=tokenizer, config=config)
     train_dataset = datasets["train"]
     valid_dataset = datasets["validation"]
 
@@ -48,14 +48,14 @@ def train(config: TrainingConfig) -> None:
     )
 
     # ── Model ──────────────────────────────────────────────────────────────────
-    model = build_model(config.model_name, config.dropout, config.freeze_encoder)
-    model.to(device)
+    model = build_model(model_name=config.model_name, dropout=config.dropout, freeze_encoder=config.freeze_encoder)
+    model.to(device=device)
 
     # ── Optimizer & Scheduler ──────────────────────────────────────────────────
-    optimizer = build_optimizer(model, config)
+    optimizer = build_optimizer(model=model, config=config)
     grad_accum_steps = max(1, config.gradient_accumulation_steps)
     total_steps = ((len(train_loader) + grad_accum_steps - 1) // grad_accum_steps) * config.epochs
-    scheduler = build_scheduler(optimizer, total_steps, config)
+    scheduler = build_scheduler(optimizer=optimizer, num_training_steps=total_steps, config=config)
 
     # ── Training loop ──────────────────────────────────────────────────────────
     best_valid_loss = float("inf")
@@ -67,7 +67,7 @@ def train(config: TrainingConfig) -> None:
 
         for step, batch in enumerate(train_loader, start=1):
             batch = {
-                k: v.to(device, non_blocking=True)
+                k: v.to(device=device, non_blocking=True)
                 for k, v in batch.items()
                 if hasattr(v, "to")
             }
@@ -80,15 +80,15 @@ def train(config: TrainingConfig) -> None:
             train_loss += outputs.loss.item()
 
             if step % grad_accum_steps == 0 or step == len(train_loader):
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
-                scaler.step(optimizer)
+                scaler.unscale_(optimizer=optimizer)
+                torch.nn.utils.clip_grad_norm_(parameters=model.parameters(), max_norm=config.max_grad_norm)
+                scaler.step(optimizer=optimizer)
                 scaler.update()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
 
         # ── Evaluation ─────────────────────────────────────────────────────────
-        metrics = evaluate(model, valid_loader, device)
+        metrics = evaluate(model=model, loader=valid_loader, device=device)
 
         print(
             f"epoch={epoch}/{config.epochs}  "
@@ -100,18 +100,18 @@ def train(config: TrainingConfig) -> None:
         # ── Checkpoint ─────────────────────────────────────────────────────────
         ckpt_dir = Path(config.output_dir) / f"epoch-{epoch}"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
-        torch.save(model.state_dict(), ckpt_dir / "model.pt")
-        tokenizer.save_pretrained(ckpt_dir)
-        config.to_yaml(ckpt_dir / "config.yaml")
+        torch.save(obj=model.state_dict(), f=ckpt_dir / "model.pt")
+        tokenizer.save_pretrained(save_directory=ckpt_dir)
+        config.to_yaml(path=ckpt_dir / "config.yaml")
 
         # Lưu riêng best model
         if metrics["loss"] < best_valid_loss:
             best_valid_loss = metrics["loss"]
             best_dir = Path(config.output_dir) / "best"
             best_dir.mkdir(parents=True, exist_ok=True)
-            torch.save(model.state_dict(), best_dir / "model.pt")
-            tokenizer.save_pretrained(best_dir)
-            config.to_yaml(best_dir / "config.yaml")
+            torch.save(obj=model.state_dict(), f=best_dir / "model.pt")
+            tokenizer.save_pretrained(save_directory=best_dir)
+            config.to_yaml(path=best_dir / "config.yaml")
             print(f"  → best model saved (valid_loss={best_valid_loss:.4f})")
 
 

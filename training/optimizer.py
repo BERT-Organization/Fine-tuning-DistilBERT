@@ -30,7 +30,7 @@ def build_optimizer(model: torch.nn.Module, config: TrainingConfig) -> AdamW:
             "weight_decay": 0.0,
         },
     ]
-    return AdamW(param_groups, lr=config.learning_rate)
+    return AdamW(params=param_groups, lr=config.learning_rate)
 
 
 def build_scheduler(
@@ -41,7 +41,7 @@ def build_scheduler(
     """Linear warmup → linear decay scheduler."""
     num_warmup_steps = max(1, int(num_training_steps * config.warmup_ratio))
     return get_linear_schedule_with_warmup(
-        optimizer,
+        optimizer=optimizer,
         num_warmup_steps=num_warmup_steps,
         num_training_steps=num_training_steps,
     )

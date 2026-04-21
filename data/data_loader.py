@@ -20,8 +20,8 @@ def load_raw_datasets(config) -> DatasetDict:
     """Tải dataset QA từ HuggingFace Hub hoặc từ file local."""
     if config.dataset_name:
         return load_dataset(
-            config.dataset_name,
-            config.dataset_config_name,
+            path=config.dataset_name,
+            name=config.dataset_config_name,
             cache_dir=config.cache_dir,
         )
 
@@ -36,23 +36,23 @@ def load_raw_datasets(config) -> DatasetDict:
     if not data_files:
         raise ValueError("Cần cung cấp dataset_name hoặc ít nhất một trong train_file/validation_file/test_file.")
 
-    data_format = _infer_local_format(next(iter(data_files.values())))
+    data_format = _infer_local_format(file_path=next(iter(data_files.values())))
     load_kwargs = {"data_files": data_files, "cache_dir": config.cache_dir}
     if data_format == "csv" and next(iter(data_files.values())).endswith(".tsv"):
         load_kwargs["delimiter"] = "\t"
 
-    return load_dataset(data_format, **load_kwargs)
+    return load_dataset(path=data_format, **load_kwargs)
 
 
 def build_qa_datasets(tokenizer, config) -> DatasetDict:
     """Tokenize raw QA data và tạo start/end positions cho training."""
-    raw_datasets = load_raw_datasets(config)
+    raw_datasets = load_raw_datasets(config=config)
 
     processed = DatasetDict()
     for split_name in raw_datasets.keys():
         processed[split_name] = raw_datasets[split_name].map(
             lambda examples: prepare_train_features(
-                examples,
+                examples=examples,
                 tokenizer=tokenizer,
                 question_column=config.question_column,
                 context_column=config.context_column,

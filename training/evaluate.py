@@ -18,7 +18,7 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
 
     with torch.no_grad():
         for batch in loader:
-            batch = {k: v.to(device) for k, v in batch.items() if hasattr(v, "to")}
+            batch = {k: v.to(device=device) for k, v in batch.items() if hasattr(v, "to")}
             outputs = model(**batch)
 
             total_loss += outputs.loss.item()
@@ -29,7 +29,7 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
                 (start_pred == batch["start_positions"]) &
                 (end_pred == batch["end_positions"])
             ).sum().item()
-            total += batch["start_positions"].size(0)
+            total += batch["start_positions"].size(dim=0)
 
     return {
         "loss": total_loss / max(1, len(loader)),
