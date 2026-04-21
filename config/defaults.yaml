@@ -1,12 +1,22 @@
 # ── Model ──────────────────────────────────────────────────────────────────────
 model_name: distilbert-base-uncased
-num_labels: 2
 dropout: 0.1
-freeze_encoder: false   # true = chỉ train classification head
+freeze_encoder: false   # true = chỉ train QA head
 
 # ── Data ───────────────────────────────────────────────────────────────────────
 dataset_name: taidng/UIT-ViQuAD2.0
-max_length: 512
+dataset_config_name: null
+train_file: null
+validation_file: null
+test_file: null
+question_column: question
+context_column: context
+answers_column: answers
+impossible_column: is_impossible
+plausible_answers_column: plausible_answers
+max_length: 384
+doc_stride: 128
+padding: max_length
 cache_dir: null
 
 # ── Training loop ──────────────────────────────────────────────────────────────
@@ -16,6 +26,12 @@ learning_rate: 2.0e-5
 weight_decay: 0.01
 warmup_ratio: 0.1     # 10% tổng steps để warmup LR
 max_grad_norm: 1.0    # gradient clipping
+
+# ── GPU / throughput ──────────────────────────────────────────────────────────
+num_workers: 2
+pin_memory: true
+use_amp: true
+gradient_accumulation_steps: 1
 
 # ── Output ─────────────────────────────────────────────────────────────────────
 output_dir: outputs/checkpoints

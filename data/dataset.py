@@ -1,45 +1,97 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-import torch
-from torch.utils.data import Dataset
+from typing import Any
 
 
 @dataclass(frozen=True)
-class ViQuADExample:
-    """Một cặp (question, context) từ UIT-ViQuAD2.0 dùng cho answerability classification."""
+class QAExample:
+    """Một mẫu QA chuẩn SQuAD: question, context, answers."""
+
     question: str
     context: str
-    label: int  # 0 = answerable, 1 = unanswerable (is_impossible)
+    answers: dict[str, list[Any]]
+    id: str | None = None
 
 
-class ViQuADDataset(Dataset):
+def prepare_train_features(
+    examples,
+    tokenizer,
+    question_column: str = "question",
+    context_column: str = "context",
+    answers_column: str = "answers",
+    impossible_column: str = "is_impossible",
+    max_length: int = 384,
+    doc_stride: int = 128,
+    padding: str = "max_length",
+):
     """
-    Dataset cho bài toán answerability classification trên UIT-ViQuAD2.0.
+    Chuyển raw QA examples thành tokenized features có start_positions/end_positions.
 
-    Input model: [CLS] question [SEP] context [SEP]  (chuẩn BERT/DistilBERT cho QA)
-    Label      : is_impossible → 0 (có đáp án) / 1 (không có đáp án)
+    Hỗ trợ kiểu dataset SQuAD/HuggingFace với schema:
+        question: str
+        context: str
+        answers: {"text": [...], "answer_start": [...]}
     """
+    pad_on_right = tokenizer.padding_side == "right"
 
-    def __init__(self, examples: list[ViQuADExample], tokenizer, max_length: int = 512):
-        self.examples = examples
-        self.tokenizer = tokenizer
-        self.max_length = max_length
+    tokenized_examples = tokenizer(
+        examples[question_column if pad_on_right else context_column],
+        examples[context_column if pad_on_right else question_column],
+        truncation="only_second" if pad_on_right else "only_first",
+        max_length=max_length,
+        stride=doc_stride,
+        return_overflowing_tokens=True,
+        return_offsets_mapping=True,
+        padding=padding,
+    )
 
-    def __len__(self) -> int:
-        return len(self.examples)
+    sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
+    offset_mapping = tokenized_examples.pop("offset_mapping")
 
-    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        example = self.examples[index]
-        encoded = self.tokenizer(
-            example.question,
-            example.context,
-            truncation=True,
-            padding="max_length",
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
-        item = {key: value.squeeze(0) for key, value in encoded.items()}
-        item["labels"] = torch.tensor(example.label, dtype=torch.long)
-        return item
+    start_positions: list[int] = []
+    end_positions: list[int] = []
+
+    for i, offsets in enumerate(offset_mapping):
+        input_ids = tokenized_examples["input_ids"][i]
+        cls_index = input_ids.index(tokenizer.cls_token_id)
+        sequence_ids = tokenized_examples.sequence_ids(i)
+
+        sample_index = sample_mapping[i]
+        answers = examples[answers_column][sample_index]
+        is_impossible = False
+        if impossible_column in examples:
+            is_impossible = bool(examples[impossible_column][sample_index])
+
+        if is_impossible or len(answers.get("answer_start", [])) == 0:
+            start_positions.append(cls_index)
+            end_positions.append(cls_index)
+            continue
+
+        start_char = answers["answer_start"][0]
+        end_char = start_char + len(answers["text"][0])
+
+        token_start_index = 0
+        while sequence_ids[token_start_index] != (1 if pad_on_right else 0):
+            token_start_index += 1
+
+        token_end_index = len(input_ids) - 1
+        while sequence_ids[token_end_index] != (1 if pad_on_right else 0):
+            token_end_index -= 1
+
+        if not (offsets[token_start_index][0] <= start_char and offsets[token_end_index][1] >= end_char):
+            start_positions.append(cls_index)
+            end_positions.append(cls_index)
+            continue
+
+        while token_start_index < len(offsets) and offsets[token_start_index][0] <= start_char:
+            token_start_index += 1
+        start_positions.append(token_start_index - 1)
+
+        while offsets[token_end_index][1] >= end_char:
+            token_end_index -= 1
+        end_positions.append(token_end_index + 1)
+
+    tokenized_examples["start_positions"] = start_positions
+    tokenized_examples["end_positions"] = end_positions
+    return tokenized_examples

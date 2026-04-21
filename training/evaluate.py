@@ -6,14 +6,14 @@ from torch.utils.data import DataLoader
 
 def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> dict[str, float]:
     """
-    Chạy evaluation loop, trả về loss và accuracy.
+    Evaluation cho extractive QA.
 
     Returns:
-        {"loss": float, "accuracy": float}
+        {"loss": float, "span_exact_match": float}
     """
     model.eval()
     total_loss = 0.0
-    correct = 0
+    exact_match = 0
     total = 0
 
     with torch.no_grad():
@@ -23,12 +23,15 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
 
             total_loss += outputs.loss.item()
 
-            preds = outputs.logits.argmax(dim=-1)
-            labels = batch["labels"]
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
+            start_pred = outputs.start_logits.argmax(dim=-1)
+            end_pred = outputs.end_logits.argmax(dim=-1)
+            exact_match += (
+                (start_pred == batch["start_positions"]) &
+                (end_pred == batch["end_positions"])
+            ).sum().item()
+            total += batch["start_positions"].size(0)
 
     return {
-        "loss":     total_loss / max(1, len(loader)),
-        "accuracy": correct / max(1, total),
+        "loss": total_loss / max(1, len(loader)),
+        "span_exact_match": exact_match / max(1, total),
     }

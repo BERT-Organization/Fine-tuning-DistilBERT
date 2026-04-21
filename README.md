@@ -29,7 +29,6 @@ Fine-tuning-DistilBERT/
 ├── scripts/
 │   └── train.py               # Entrypoint CLI
 │
-├── BERT_manual.ipynb          # Giải thích kiến trúc BERT/DistilBERT thủ công
 ├── requirements.txt
 └── outputs/
     └── checkpoints/           # Checkpoint mỗi epoch + best model
