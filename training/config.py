@@ -9,44 +9,71 @@ import yaml
 
 @dataclass
 class TrainingConfig:
-    # ── Model ──────────────────────────────────────────────────────────────────
-    model_name:     str   = "distilbert-base-uncased"
-    dropout:        float = 0.1
-    freeze_encoder: bool  = False   # True = chỉ train QA head
+    """Training configuration cho DistilBERT Extractive QA."""
 
-    # ── Data ───────────────────────────────────────────────────────────────────
-    dataset_name:         Optional[str] = "taidng/UIT-ViQuAD2.0"
-    dataset_config_name:  Optional[str] = None
-    train_file:           Optional[str] = None
-    validation_file:      Optional[str] = None
-    test_file:            Optional[str] = None
-    question_column:      str = "question"
-    context_column:       str = "context"
-    answers_column:       str = "answers"
-    impossible_column:    str = "is_impossible"
+    # ── Model Architecture ────────────────────────────────────────────────────
+    model_name: str = "distilbert-base-multilingual-cased"
+    dropout: float = 0.1
+    freeze_encoder: bool = False  # True = chỉ train QA head
+
+    # ── Dataset Configuration ────────────────────────────────────────────────
+    dataset_name: Optional[str] = "taidng/UIT-ViQuAD2.0"
+    dataset_config_name: Optional[str] = None
+    train_file: Optional[str] = None
+    validation_file: Optional[str] = None
+    test_file: Optional[str] = None
+
+    # Column names
+    question_column: str = "question"
+    context_column: str = "context"
+    answers_column: str = "answers"
+    impossible_column: str = "is_impossible"
     plausible_answers_column: str = "plausible_answers"
-    max_length:           int = 384
-    doc_stride:           int = 128
-    padding:              str = "max_length"
-    cache_dir:            Optional[str] = None  # HuggingFace dataset cache
 
-    # ── Training loop ──────────────────────────────────────────────────────────
-    batch_size:    int   = 8
-    epochs:        int   = 3
-    learning_rate: float = 2e-5
-    weight_decay:  float = 0.01
-    warmup_ratio:  float = 0.1    # tỉ lệ warmup steps / total steps
-    max_grad_norm: float = 1.0    # gradient clipping
+    # Text processing
+    max_length: int = 384
+    doc_stride: int = 128
+    padding: str = "max_length"
+    cache_dir: Optional[str] = None
 
-    # ── GPU / throughput ──────────────────────────────────────────────────────
-    num_workers: int = 0
+    # Vietnamese segmentation
+    use_vietnamese_segmentation: bool = False
+    segmentation_tool: str = "underthesea"  # 'underthesea' hoặc 'pyvi'
+
+    # ── Training Loop ────────────────────────────────────────────────────────
+    batch_size: int = 16  # Tăng từ 8 lên 16 cho QA
+    epochs: int = 3
+    learning_rate: float = 3e-5  # Optimal cho fine-tuning
+    weight_decay: float = 0.01
+    warmup_ratio: float = 0.1
+    max_grad_norm: float = 1.0
+    gradient_accumulation_steps: int = 1
+
+    # ── GPU / Throughput ────────────────────────────────────────────────────
+    num_workers: int = 2
     pin_memory: bool = True
-    use_amp: bool = True                 # mixed precision với torch.cuda.amp
-    gradient_accumulation_steps: int = 1  # batch hiệu dụng = batch_size × steps
+    persistent_workers: bool = True
+    prefetch_factor: int = 2
+    use_amp: bool = True
+    use_tf32: bool = True
+    force_cpu: bool = False  # Force CPU training even if CUDA is available
 
-    # ── Output ─────────────────────────────────────────────────────────────────
+    # ── Evaluation & Checkpointing ──────────────────────────────────────────
+    eval_steps: Optional[int] = None  # Evaluate sau N steps (None = per epoch)
+    save_steps: Optional[int] = None  # Save checkpoint sau N steps
+    eval_strategy: str = "epoch"  # "epoch", "steps", "no"
+    save_strategy: str = "epoch"
+    save_best_model: bool = True
+    best_metric: str = "exact_match"  # "exact_match" hoặc "f1"
+    load_best_model: bool = True
+
+    # ── Output ─────────────────────────────────────────────────────────────
     output_dir: str = "outputs/checkpoints"
-    seed:       int = 42
+    seed: int = 42
+
+    # Logging
+    logging_steps: int = 100
+    log_level: str = "info"
 
     # ── Điều chỉnh fine-tuning sau này ─────────────────────────────────────────
     # Thêm field mới tại đây mà không cần chỉnh trainer.py:

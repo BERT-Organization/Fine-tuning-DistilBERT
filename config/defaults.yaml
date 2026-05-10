@@ -1,39 +1,61 @@
-# ── Model ──────────────────────────────────────────────────────────────────────
-model_name: distilbert-base-uncased
-dropout: 0.1
-freeze_encoder: false   # true = chỉ train QA head
+# ════════════════════════════════════════════════════════════════════════════════
+# Vietnamese DistilBERT Extractive Question-Answering (QA) Configuration
+# ════════════════════════════════════════════════════════════════════════════════
 
-# ── Data ───────────────────────────────────────────────────────────────────────
+# ── Model Architecture ──────────────────────────────────────────────────────────
+model_name: distilbert-base-multilingual-cased
+dropout: 0.1
+freeze_encoder: false   # true = chỉ train QA head, false = fine-tune toàn bộ
+
+# ── Dataset Configuration ───────────────────────────────────────────────────────
+# HuggingFace Hub dataset (UIT-ViQuAD2.0 - Vietnamese)
 dataset_name: taidng/UIT-ViQuAD2.0
 dataset_config_name: null
+
+# Local file support (SQuAD-format JSON)
 train_file: null
 validation_file: null
 test_file: null
+
+# Column names in dataset
 question_column: question
 context_column: context
 answers_column: answers
 impossible_column: is_impossible
 plausible_answers_column: plausible_answers
-max_length: 384
-doc_stride: 128
-padding: max_length
+
+# ── Text Processing ────────────────────────────────────────────────────────────
+max_length: 384                 # Độ dài tối đa của sequence (tokens)
+doc_stride: 128                 # Sliding window stride để xử lý context dài
+padding: max_length             # Cách padding: "max_length" hoặc "longest"
 cache_dir: null
 
-# ── Training loop ──────────────────────────────────────────────────────────────
-batch_size: 8
-epochs: 3
-learning_rate: 2.0e-5
-weight_decay: 0.01
-warmup_ratio: 0.1     # 10% tổng steps để warmup LR
-max_grad_norm: 1.0    # gradient clipping
+# Vietnamese word segmentation
+use_vietnamese_segmentation: false
+segmentation_tool: underthesea  # 'underthesea' = RDRSegmenter hoặc 'pyvi'
 
-# ── GPU / throughput ──────────────────────────────────────────────────────────
+# ── Training Hyperparameters ────────────────────────────────────────────────────
+batch_size: 16                  # Tăng từ 8 lên 16 cho QA task
+epochs: 3                       # 3-5 epochs thường đủ
+learning_rate: 3.0e-5           # Optimal cho fine-tuning (giữ nguyên weights pre-trained)
+weight_decay: 0.01              # L2 regularization
+warmup_ratio: 0.1               # 10% tổng training steps để warmup learning rate
+max_grad_norm: 1.0              # Gradient clipping
+
+# ── GPU & Optimization ──────────────────────────────────────────────────────────
 num_workers: 2
 pin_memory: true
-use_amp: true
+persistent_workers: true
+prefetch_factor: 2
+use_amp: true                   # Automatic Mixed Precision (tăng tốc độ trên GPU)
+use_tf32: true                  # Tăng tốc matmul trên Ampere+ khi dùng CUDA
 gradient_accumulation_steps: 1
 
-# ── Output ─────────────────────────────────────────────────────────────────────
+# ── Output & Logging ────────────────────────────────────────────────────────────
 output_dir: outputs/checkpoints
-seed: 42
+save_best_model: true
+best_metric: exact_match         # Lưu model dựa vào metric này (EM hoặc f1)
+eval_strategy: epoch             # Evaluate sau mỗi epoch
+save_strategy: epoch             # Lưu checkpoint sau mỗi epoch
 
+seed: 42

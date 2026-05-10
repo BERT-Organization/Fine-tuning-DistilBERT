@@ -1,168 +1,131 @@
+"""
+DistilBERT Question-Answering model for extractive QA.
+
+Kiến trúc:
+1. Pretrained DistilBERT encoder (từ HuggingFace)
+2. QA head với 2 linear layers cho start/end token prediction
+3. Cross-entropy loss cho training
+
+Note: Sử dụng HuggingFace's DistilBertModel cho reliability và pre-trained weights.
+"""
+
 from __future__ import annotations
 
-import math
-from typing import Optional
+from dataclasses import dataclass
+import importlib
+from pathlib import Path
+import sys
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
-from transformers import DistilBertConfig
-from transformers.modeling_outputs import QuestionAnsweringModelOutput
+import transformers.utils as transformers_utils
+from transformers.utils import import_utils as transformers_import_utils
+
+
+def _disable_broken_torchvision() -> None:
+    """Treat torchvision as unavailable when its binary ops cannot be imported."""
+    try:
+        importlib.import_module("torchvision")
+    except Exception:
+        for module_name in list(sys.modules):
+            if module_name == "torchvision" or module_name.startswith("torchvision."):
+                sys.modules.pop(module_name, None)
+        transformers_import_utils.is_torchvision_available = lambda: False
+        transformers_utils.is_torchvision_available = lambda: False
+
+
+_disable_broken_torchvision()
+
+from transformers import (  # noqa: E402
+    DistilBertModel,
+    DistilBertConfig,
+)
 
 from .config import build_config
 
 
-class DistilBertEmbeddings(nn.Module):
-    """Word + position embeddings (DistilBERT không dùng token_type embeddings)."""
+@dataclass
+class QAModelOutput:
+    """Output từ QA model."""
 
-    def __init__(self, config: DistilBertConfig):
-        super().__init__()
-        self.word_embeddings = nn.Embedding(num_embeddings=config.vocab_size, embedding_dim=config.dim, padding_idx=config.pad_token_id)
-        self.position_embeddings = nn.Embedding(num_embeddings=config.max_position_embeddings, embedding_dim=config.dim)
-        self.layer_norm = nn.LayerNorm(normalized_shape=config.dim, eps=1e-12)
-        self.dropout = nn.Dropout(p=config.dropout)
-
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
-        batch_size, seq_len = input_ids.shape
-        position_ids = torch.arange(seq_len, dtype=torch.long, device=input_ids.device)
-        position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-
-        x = self.word_embeddings(input=input_ids) + self.position_embeddings(input=position_ids)
-        x = self.layer_norm(x)
-        return self.dropout(x)
-
-
-class MultiHeadSelfAttention(nn.Module):
-    """Scaled Dot-Product Multi-Head Self-Attention."""
-
-    def __init__(self, config: DistilBertConfig):
-        super().__init__()
-        self.n_heads = config.n_heads
-        self.dim = config.dim
-        self.head_dim = config.dim // config.n_heads
-        self.dropout = nn.Dropout(p=config.attention_dropout)
-
-        self.q_lin = nn.Linear(in_features=self.dim, out_features=self.dim)
-        self.k_lin = nn.Linear(in_features=self.dim, out_features=self.dim)
-        self.v_lin = nn.Linear(in_features=self.dim, out_features=self.dim)
-        self.out_lin = nn.Linear(in_features=self.dim, out_features=self.dim)
-
-    def _shape(self, x: torch.Tensor, batch_size: int, seq_len: int) -> torch.Tensor:
-        return x.view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)
-
-    def forward(self, hidden_states: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        batch_size, seq_len, _ = hidden_states.shape
-
-        q = self._shape(x=self.q_lin(input=hidden_states), batch_size=batch_size, seq_len=seq_len)
-        k = self._shape(x=self.k_lin(input=hidden_states), batch_size=batch_size, seq_len=seq_len)
-        v = self._shape(x=self.v_lin(input=hidden_states), batch_size=batch_size, seq_len=seq_len)
-
-        scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(self.head_dim)
-
-        if attention_mask is not None:
-            # attention_mask: [B, T] -> [B, 1, 1, T], 1=keep, 0=mask
-            mask = attention_mask[:, None, None, :].to(dtype=scores.dtype)
-            scores = scores.masked_fill(mask == 0, torch.finfo(scores.dtype).min)
-
-        attn_weights = torch.softmax(input=scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
-
-        context = torch.matmul(attn_weights, v)  # [B, H, T, D]
-        context = context.transpose(1, 2).contiguous().view(batch_size, seq_len, self.dim)
-        return self.out_lin(input=context)
-
-
-class FeedForward(nn.Module):
-    """Transformer FFN block: dim -> hidden_dim -> dim."""
-
-    def __init__(self, config: DistilBertConfig):
-        super().__init__()
-        self.lin1 = nn.Linear(in_features=config.dim, out_features=config.hidden_dim)
-        self.lin2 = nn.Linear(in_features=config.hidden_dim, out_features=config.dim)
-        self.dropout = nn.Dropout(p=config.dropout)
-        self.activation = nn.GELU()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.lin2(input=self.dropout(input=self.activation(input=self.lin1(input=x))))
-
-
-class TransformerBlock(nn.Module):
-    """DistilBERT encoder layer: MHSA + FFN with residual + layernorm."""
-
-    def __init__(self, config: DistilBertConfig):
-        super().__init__()
-        self.attention = MultiHeadSelfAttention(config=config)
-        self.sa_layer_norm = nn.LayerNorm(normalized_shape=config.dim, eps=1e-12)
-        self.ffn = FeedForward(config=config)
-        self.output_layer_norm = nn.LayerNorm(normalized_shape=config.dim, eps=1e-12)
-        self.dropout = nn.Dropout(p=config.dropout)
-
-    def forward(self, x: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        attn_out = self.attention(hidden_states=x, attention_mask=attention_mask)
-        x = self.sa_layer_norm(input=x + self.dropout(input=attn_out))
-
-        ffn_out = self.ffn(x=x)
-        x = self.output_layer_norm(input=x + self.dropout(input=ffn_out))
-        return x
-
-
-class DistilBertEncoder(nn.Module):
-    """Stack N transformer blocks của DistilBERT."""
-
-    def __init__(self, config: DistilBertConfig):
-        super().__init__()
-        self.layers = nn.ModuleList([TransformerBlock(config=config) for _ in range(config.n_layers)])
-
-    def forward(self, x: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        for layer in self.layers:
-            x = layer(x=x, attention_mask=attention_mask)
-        return x
+    loss: Optional[torch.Tensor] = None
+    start_logits: torch.Tensor = None
+    end_logits: torch.Tensor = None
+    hidden_states: Optional[Tuple[torch.Tensor, ...]] = None
+    attentions: Optional[Tuple[torch.Tensor, ...]] = None
 
 
 class DistilBertForQuestionAnswering(nn.Module):
-    """DistilBERT QA model thuần PyTorch, lấy kiến trúc config từ HuggingFace."""
+    """
+    DistilBERT model cho extractive question-answering.
+
+    Architecture:
+    1. DistilBertModel: Pretrained encoder
+    2. Dropout + 2 linear layers: Start/end token prediction
+
+    Input:
+        - input_ids: Token IDs (batch_size, seq_len)
+        - attention_mask: Attention mask (batch_size, seq_len)
+        - start_positions: Ground truth start positions (batch_size,) - optional
+        - end_positions: Ground truth end positions (batch_size,) - optional
+
+    Output:
+        - start_logits: (batch_size, seq_len)
+        - end_logits: (batch_size, seq_len)
+        - loss: Sum of start + end cross-entropy losses (optional)
+    """
 
     def __init__(self, config: DistilBertConfig, dropout: float = 0.1):
+        """
+        Args:
+            config: DistilBertConfig from HuggingFace
+            dropout: Dropout rate cho QA head
+        """
         super().__init__()
+
         self.config = config
+        self.hidden_size = config.hidden_size
 
-        if hasattr(self.config, "dropout"):
-            self.config.dropout = dropout
-        if hasattr(self.config, "qa_dropout"):
-            self.config.qa_dropout = dropout
+        # Pretrained encoder
+        self.distilbert = DistilBertModel(config=config)
 
-        self.embeddings = DistilBertEmbeddings(config=self.config)
-        self.encoder = DistilBertEncoder(config=self.config)
+        # QA head
+        self.dropout = nn.Dropout(p=dropout)
+        self.qa_classifier = nn.Linear(in_features=self.hidden_size, out_features=2)
 
-        qa_dropout = getattr(self.config, "qa_dropout", dropout)
-        self.dropout = nn.Dropout(p=qa_dropout)
-        self.qa_outputs = nn.Linear(in_features=self.config.dim, out_features=2)
+        # Loss function
+        self.loss_fn = nn.CrossEntropyLoss(reduction="mean")
 
         self._init_weights()
 
-    def _init_weights(self) -> None:
-        init_std = getattr(self.config, "initializer_range", 0.02)
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.normal_(module.weight, mean=0.0, std=init_std)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-            elif isinstance(module, nn.Embedding):
-                nn.init.normal_(module.weight, mean=0.0, std=init_std)
-                if module.padding_idx is not None:
-                    module.weight.data[module.padding_idx].zero_()
-            elif isinstance(module, nn.LayerNorm):
-                nn.init.ones_(module.weight)
-                nn.init.zeros_(module.bias)
+    def _init_weights(self):
+        """Initialize QA head weights."""
+        init_std = self.config.initializer_range
+
+        if hasattr(self.qa_classifier, "weight"):
+            nn.init.normal_(self.qa_classifier.weight, mean=0.0, std=init_std)
+
+        if hasattr(self.qa_classifier, "bias") and self.qa_classifier.bias is not None:
+            nn.init.zeros_(self.qa_classifier.bias)
 
     def freeze_encoder(self) -> None:
-        """Đóng băng encoder, chỉ train QA head."""
-        for param in self.encoder.parameters():
+        """Freeze encoder, train only QA head."""
+        for param in self.distilbert.parameters():
             param.requires_grad = False
 
     def unfreeze_encoder(self) -> None:
-        """Mở băng toàn bộ model."""
+        """Unfreeze all parameters."""
         for param in self.parameters():
             param.requires_grad = True
+
+    def save_pretrained(self, save_directory: str | Path) -> None:
+        """Save model state and config in HuggingFace-compatible format."""
+        save_directory = Path(save_directory)
+        save_directory.mkdir(parents=True, exist_ok=True)
+        torch.save(self.state_dict(), save_directory / "pytorch_model.bin")
+        if hasattr(self.config, "to_json_file"):
+            self.config.to_json_file(save_directory / "config.json")
 
     def forward(
         self,
@@ -171,37 +134,67 @@ class DistilBertForQuestionAnswering(nn.Module):
         start_positions: Optional[torch.Tensor] = None,
         end_positions: Optional[torch.Tensor] = None,
         **kwargs,
-    ) -> QuestionAnsweringModelOutput:
-        x = self.embeddings(input_ids=input_ids)
-        sequence_output = self.encoder(x=x, attention_mask=attention_mask)
-        sequence_output = self.dropout(input=sequence_output)
-        logits = self.qa_outputs(input=sequence_output)  # [B, T, 2]
-        start_logits, end_logits = logits.split(split_size=1, dim=-1)
-        start_logits = start_logits.squeeze(-1).contiguous()  # [B, T]
-        end_logits = end_logits.squeeze(-1).contiguous()      # [B, T]
+    ) -> QAModelOutput:
+        """
+        Forward pass.
 
+        Args:
+            input_ids: (batch_size, seq_len)
+            attention_mask: (batch_size, seq_len) - optional
+            start_positions: (batch_size,) - optional, for training
+            end_positions: (batch_size,) - optional, for training
+            **kwargs: Additional arguments for DistilBert (e.g., token_type_ids)
+
+        Returns:
+            QAModelOutput with start_logits, end_logits, and loss (if labels provided)
+        """
+
+        # DistilBERT forward pass
+        outputs = self.distilbert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True,
+        )
+
+        # Get sequence output (last hidden state)
+        sequence_output = outputs.last_hidden_state  # (batch_size, seq_len, hidden_size)
+
+        # Apply dropout
+        sequence_output = self.dropout(sequence_output)
+
+        # QA classifier
+        logits = self.qa_classifier(sequence_output)  # (batch_size, seq_len, 2)
+        start_logits, end_logits = logits.split(split_size=1, dim=-1)
+
+        start_logits = start_logits.squeeze(-1).contiguous()  # (batch_size, seq_len)
+        end_logits = end_logits.squeeze(-1).contiguous()      # (batch_size, seq_len)
+
+        # Compute loss
         loss = None
         if start_positions is not None and end_positions is not None:
+            # Ensure correct shapes
             if start_positions.dim() > 1:
                 start_positions = start_positions.squeeze(-1)
             if end_positions.dim() > 1:
                 end_positions = end_positions.squeeze(-1)
 
+            # Clamp positions to valid range
             ignored_index = start_logits.size(1)
             start_positions = start_positions.clamp(0, ignored_index)
             end_positions = end_positions.clamp(0, ignored_index)
 
+            # CrossEntropyLoss
             loss_fct = nn.CrossEntropyLoss(ignore_index=ignored_index)
             start_loss = loss_fct(input=start_logits, target=start_positions)
             end_loss = loss_fct(input=end_logits, target=end_positions)
-            loss = (start_loss + end_loss) / 2
+            loss = (start_loss + end_loss) / 2.0
 
-        return QuestionAnsweringModelOutput(
+        return QAModelOutput(
             loss=loss,
             start_logits=start_logits,
             end_logits=end_logits,
-            hidden_states=None,
-            attentions=None,
+            hidden_states=outputs.hidden_states if hasattr(outputs, "hidden_states") else None,
+            attentions=outputs.attentions if hasattr(outputs, "attentions") else None,
         )
 
 
@@ -210,10 +203,35 @@ def build_model(
     dropout: float = 0.1,
     freeze_encoder: bool = False,
 ) -> DistilBertForQuestionAnswering:
-    hf_config = build_config(model_name=model_name, num_labels=2)
-    model = DistilBertForQuestionAnswering(config=hf_config, dropout=dropout)
+    """
+    Build DistilBERT QA model từ pretrained checkpoint.
+
+    Args:
+        model_name: HuggingFace model name (VD: "distilbert-base-multilingual-cased")
+        dropout: Dropout rate cho QA head
+        freeze_encoder: Có freeze encoder hay không
+
+    Returns:
+        DistilBertForQuestionAnswering model
+    """
+
+    # Load config
+    config = build_config(model_name=model_name, num_labels=2, dropout=dropout)
+
+    # Create model
+    model = DistilBertForQuestionAnswering(config=config, dropout=dropout)
+
+    # Load pretrained encoder weights
+    pretrained_model = DistilBertModel.from_pretrained(model_name)
+    model.distilbert.load_state_dict(pretrained_model.state_dict())
+
+    # Optionally freeze encoder
     if freeze_encoder:
         model.freeze_encoder()
+
     return model
 
 
+
+# The custom DistilBERT PyTorch implementation was removed.
+# The project uses the HuggingFace DistilBERT encoder + lightweight QA head above.
