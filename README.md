@@ -1,160 +1,145 @@
-# Fine-tuning DistilBERT
+# Fine-tuning DistilBERT cho hỏi đáp trích xuất tiếng Việt
 
-Fine-tune **DistilBERT** cho bài toán **Answerability Classification** trên dataset **UIT-ViQuAD2.0** (tiếng Việt).  
-Input: cặp `(question, context)` — Label: `is_impossible` (0 = có đáp án / 1 = không có đáp án).
+Dự án này fine-tune **DistilBERT multilingual cased** cho bài toán **extractive question answering**: mô hình nhận một câu hỏi và một đoạn ngữ cảnh, sau đó dự đoán vị trí bắt đầu/kết thúc của câu trả lời nằm trực tiếp trong ngữ cảnh.
 
----
+## Tính năng chính
 
-## Cấu trúc dự án
-
-```
-Fine-tuning-DistilBERT/
-├── config/
-│   └── defaults.yaml          # Tất cả hyperparameter — chỉnh tại đây
-│
-├── data/
-│   ├── dataset.py             # ViQuADExample + ViQuADDataset
-│   └── data_loader.py         # Load từ HuggingFace Hub (taidng/UIT-ViQuAD2.0)
-│
-├── model/
-│   ├── config.py              # build_config() → HuggingFace DistilBertConfig
-│   └── modeling.py            # DistilBertForClassification + build_model()
-│
-├── training/
-│   ├── config.py              # TrainingConfig (đọc/ghi YAML)
-│   ├── optimizer.py           # AdamW + Linear warmup scheduler
-│   ├── evaluate.py            # evaluate() → {loss, accuracy}
-│   └── trainer.py             # Training loop chính
-│
-├── scripts/
-│   └── train.py               # Entrypoint CLI
-│
-├── requirements.txt
-└── outputs/
-    └── checkpoints/           # Checkpoint mỗi epoch + best model
-```
-
----
+- Fine-tune `distilbert-base-multilingual-cased` với QA head dự đoán `start_logits` và `end_logits`.
+- Hỗ trợ dataset HuggingFace Hub, mặc định là `taidng/UIT-ViQuAD2.0`.
+- Hỗ trợ file local dạng JSON/JSONL/CSV/TSV theo schema QA tương thích SQuAD.
+- Tokenization với sliding window (`max_length`, `doc_stride`) để xử lý context dài.
+- Bật lại Vietnamese segmentation (`underthesea`) kèm thuật toán align offset để đồng bộ `answer_start` sau khi thêm `_`.
+- Xử lý câu hỏi không có đáp án bằng vị trí CLS token.
+- Training loop có AMP, TF32, gradient accumulation, gradient clipping và checkpoint theo epoch.
+- Validation tích hợp EM/F1 (chuẩn SQuAD qua `evaluate`) và chọn best model theo `f1`.
+- Export mô hình sang ONNX và quantization int8 để phục vụ inference CPU.
 
 ## Cài đặt
 
 ```bash
+cd /home/quagntam/Projects/Fine-tuning-DistilBERT
 pip install -r requirements.txt
 ```
 
----
+Nếu dùng CUDA, hãy bảo đảm phiên bản `torch` trong môi trường phù hợp với driver/GPU hiện tại.
 
-## Cách chạy
+## Chạy nhanh
 
-### Chạy với config mặc định
+Train với cấu hình mặc định:
 
 ```bash
 python scripts/train.py
 ```
 
-### Chạy với file config tùy chỉnh
+Train với tham số tùy chỉnh:
 
 ```bash
-python scripts/train.py --config config/defaults.yaml
+python scripts/train.py \
+  --epochs 5 \
+  --batch_size 8 \
+  --learning_rate 2e-5 \
+  --output_dir outputs/checkpoints/experiment_01
 ```
 
-### Override tham số từ CLI
+Train bằng dataset local:
 
 ```bash
-# Đổi learning rate và số epoch
-python scripts/train.py --learning_rate 3e-5 --epochs 5
-
-# Chỉ train classification head, đóng băng encoder
-python scripts/train.py --freeze_encoder
-
-# Đổi output directory
-python scripts/train.py --output_dir outputs/experiment_01
+python scripts/train.py \
+  --dataset_name "" \
+  --train_file data/train.json \
+  --validation_file data/valid.json
 ```
 
----
+Lưu ý: `argparse` nhận `--dataset_name ""` như chuỗi rỗng để bỏ dataset mặc định trong YAML. Cách sạch hơn là tạo một file config riêng với `dataset_name: null`.
 
-## Cấu hình (`config/defaults.yaml`)
+## Cấu trúc dự án
+
+```text
+Fine-tuning-DistilBERT/
+├── config/
+│   └── defaults.yaml          # Cấu hình model, dataset, training và output
+├── data/
+│   ├── data_loader.py         # Load dataset từ HuggingFace hoặc file local
+│   ├── dataset.py             # Tokenize, sliding window, tạo start/end labels
+│   └── vietnamese_utils.py    # Tiện ích xử lý tiếng Việt
+├── model/
+│   ├── config.py              # Tạo DistilBertConfig
+│   ├── modeling.py            # DistilBERT encoder + QA head
+│   └── qa_head.py             # Hàm hậu xử lý span dự đoán
+├── training/
+│   ├── config.py              # TrainingConfig dataclass
+│   ├── trainer.py             # Training loop chính
+│   ├── optimizer.py           # Optimizer và scheduler
+│   └── qa_metrics.py          # Exact Match và F1 cho QA
+├── scripts/
+│   ├── train.py               # Entry point fine-tuning
+│   ├── export_onnx.py         # Export ONNX và quantization
+│   └── inference_onnx.py      # Demo inference bằng ONNX Runtime
+└── outputs/                   # Checkpoint và model export sinh ra khi chạy
+```
+
+## Cấu hình mặc định
+
+Các tham số chính nằm trong `config/defaults.yaml`:
 
 ```yaml
-# Model
-model_name: distilbert-base-uncased
-num_labels: 2
-dropout: 0.1
-freeze_encoder: false   # true = chỉ train classification head
-
-# Data
-max_length: 512         # context dài nên để 512
-
-# Training
-batch_size: 8
+model_name: distilbert-base-multilingual-cased
+dataset_name: taidng/UIT-ViQuAD2.0
+max_length: 384
+doc_stride: 128
+batch_size: 16
 epochs: 3
-learning_rate: 2.0e-5
-weight_decay: 0.01
-warmup_ratio: 0.1
-max_grad_norm: 1.0
-
-# Output
+learning_rate: 3.0e-5
+gradient_accumulation_steps: 1
+use_amp: true
 output_dir: outputs/checkpoints
-seed: 42
 ```
 
----
+`use_vietnamese_segmentation` hiện hỗ trợ trực tiếp trong pipeline train. Khi segmentation tạo dấu `_`, hệ thống dùng hàm align offset để cập nhật lại `answers.answer_start` và `answers.text` trước khi tokenize.
 
-## Điều chỉnh fine-tuning
+## Output khi training
 
-| Muốn thay đổi | Chỉnh ở đâu |
-|---|---|
-| Hyperparameter | `config/defaults.yaml` |
-| Thêm / bớt layer trong classification head | `model/modeling.py` — `self.classifier` |
-| Đổi optimizer hoặc scheduler | `training/optimizer.py` |
-| Thêm metric (F1, precision, recall) | `training/evaluate.py` |
-| Gradient accumulation, fp16, early stopping | Thêm field vào `training/config.py` và dùng trong `training/trainer.py` |
+Sau mỗi epoch, trainer lưu checkpoint tại:
 
-### Ví dụ thêm layer vào classification head (`model/modeling.py`)
-
-```python
-self.classifier = nn.Sequential(
-    nn.Dropout(dropout),
-    nn.Linear(hidden_dim, hidden_dim),   # layer 1
-    nn.GELU(),
-    nn.Dropout(dropout),
-    nn.Linear(hidden_dim, 256),          # layer 2 — thêm mới
-    nn.GELU(),
-    nn.Dropout(dropout),
-    nn.Linear(256, num_labels),          # output
-)
-```
-
----
-
-## Dataset
-
-**[taidng/UIT-ViQuAD2.0](https://huggingface.co/datasets/taidng/UIT-ViQuAD2.0)** — Vietnamese Question Answering dataset.
-
-| Split | Số mẫu |
-|---|---|
-| train | ~27 000 |
-| validation | ~3 000 |
-
-Dataset tự động tải về khi chạy lần đầu qua HuggingFace `datasets`.
-
----
-
-## Output
-
-Sau mỗi epoch, checkpoint được lưu tại:
-
-```
+```text
 outputs/checkpoints/
-├── epoch-1/
-│   ├── model.pt
-│   ├── tokenizer_config.json
-│   └── config.yaml        # config của run này
-├── epoch-2/
-├── epoch-3/
-└── best/                  # checkpoint có valid_loss thấp nhất
-    ├── model.pt
-    ├── tokenizer_config.json
-    └── config.yaml
+├── checkpoint-epoch-1/
+│   ├── pytorch_model.bin
+│   ├── config.json
+│   └── tokenizer files...
+├── checkpoint-epoch-2/
+└── best_model/
+    ├── pytorch_model.bin
+    ├── config.json
+    └── tokenizer files...
 ```
 
+`best_model` hiện được chọn theo `f1` cao nhất trên validation; cuối train sẽ nạp lại best checkpoint nếu `load_best_model` bật.
+
+## Export ONNX
+
+```bash
+python scripts/export_onnx.py \
+  --model_path outputs/checkpoints/best_model \
+  --output_dir outputs/onnx \
+  --model_name distilbert-base-multilingual-cased
+```
+
+Script CLI hiện quantize int8 theo mặc định và lưu tokenizer cùng thư mục ONNX.
+
+## Inference ONNX
+
+```bash
+python scripts/inference_onnx.py \
+  --model_dir outputs/onnx \
+  --question "Hà Nội là thủ đô của nước nào?" \
+  --context "Hà Nội là thủ đô của Việt Nam. Thành phố nằm ở phía Bắc Việt Nam."
+```
+
+## Tài liệu
+
+- [USAGE.md](USAGE.md): hướng dẫn chạy train, export và inference.
+- [DATA_FORMAT.md](DATA_FORMAT.md): định dạng dataset được hỗ trợ.
+- [ARCHITECTURE.md](ARCHITECTURE.md): kiến trúc và luồng xử lý.
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md): tóm tắt các thành phần đã triển khai.
+- [COMPLETION_CHECKLIST.md](COMPLETION_CHECKLIST.md): checklist trạng thái dự án.
