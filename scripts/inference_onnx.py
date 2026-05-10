@@ -20,6 +20,8 @@ def run_inference_onnx(
     question: str,
     context: str,
     max_length: int = 384,
+    max_answer_length: int = 30,
+    n_best_size: int = 20,
 ) -> dict:
     """
     Run inference using ONNX model.
@@ -49,6 +51,7 @@ def run_inference_onnx(
         max_length=max_length,
         truncation=True,
         padding="max_length",
+        return_offsets_mapping=True,
         return_tensors="np",
     )
     
@@ -77,22 +80,40 @@ def run_inference_onnx(
     
     start_logits = outputs[0][0]  # (seq_len,)
     end_logits = outputs[1][0]    # (seq_len,)
-    
-    # Extract answer
-    start_idx = start_logits.argmax()
-    end_idx = end_logits.argmax()
-    
-    if end_idx < start_idx:
+
+    # Advanced span post-processing: top-k start/end pairs với ràng buộc hợp lệ.
+    offset_mapping = encoding["offset_mapping"][0]
+    start_indexes = np.argsort(start_logits)[-n_best_size:][::-1]
+    end_indexes = np.argsort(end_logits)[-n_best_size:][::-1]
+
+    best_span = None
+    best_score = float("-inf")
+    for start_idx in start_indexes:
+        for end_idx in end_indexes:
+            if end_idx < start_idx:
+                continue
+            if end_idx - start_idx + 1 > max_answer_length:
+                continue
+
+            start_char, _ = offset_mapping[start_idx]
+            _, end_char = offset_mapping[end_idx]
+            if end_char <= start_char:
+                continue
+
+            score = float(start_logits[start_idx] + end_logits[end_idx])
+            if score > best_score:
+                best_score = score
+                best_span = (int(start_idx), int(end_idx), int(start_char), int(end_char))
+
+    if best_span is None:
+        start_idx = int(start_logits.argmax())
         end_idx = start_idx
-    
-    # Limit answer length
-    if end_idx - start_idx + 1 > 30:
-        end_idx = start_idx + 29
-    
-    # Decode tokens to text
-    tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
-    answer_tokens = tokens[start_idx:end_idx + 1]
-    answer_text = tokenizer.convert_tokens_to_string(answer_tokens)
+        answer_text = ""
+        span_score = float(start_logits[start_idx] + end_logits[end_idx])
+    else:
+        start_idx, end_idx, start_char, end_char = best_span
+        answer_text = context[start_char:end_char].strip()
+        span_score = best_score
     
     logger.info(f"\n{'='*60}")
     logger.info(f"Answer: {answer_text}")
@@ -100,6 +121,7 @@ def run_inference_onnx(
     logger.info(f"End position: {end_idx}")
     logger.info(f"Start score: {start_logits[start_idx]:.4f}")
     logger.info(f"End score: {end_logits[end_idx]:.4f}")
+    logger.info(f"Span score: {span_score:.4f}")
     logger.info(f"{'='*60}\n")
     
     return {
@@ -108,6 +130,7 @@ def run_inference_onnx(
         "end_pos": int(end_idx),
         "start_score": float(start_logits[start_idx]),
         "end_score": float(end_logits[end_idx]),
+        "span_score": span_score,
     }
 
 
@@ -131,6 +154,8 @@ def main():
         default="Hà Nội là thủ đô của Việt Nam. Thành phố nằm ở phía Bắc Việt Nam.",
         help="Input context",
     )
+    parser.add_argument("--max_answer_length", type=int, default=30, help="Maximum answer token length")
+    parser.add_argument("--n_best_size", type=int, default=20, help="Top-k start/end candidates for span search")
     
     args = parser.parse_args()
     
@@ -138,6 +163,8 @@ def main():
         model_dir=args.model_dir,
         question=args.question,
         context=args.context,
+        max_answer_length=args.max_answer_length,
+        n_best_size=args.n_best_size,
     )
     
     print(f"\nResult: {result}")

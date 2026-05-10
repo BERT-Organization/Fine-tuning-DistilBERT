@@ -17,11 +17,33 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import torch
+import torch.nn as nn
 import onnx
 from onnxruntime.quantization import quantize_dynamic, QuantType
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
+
+
+class ONNXQuestionAnsweringWrapper(nn.Module):
+    """Return only tensor outputs so torch.onnx.export can trace cleanly."""
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        additive_mask = (1.0 - attention_mask[:, None, None, :].to(dtype=torch.float32)) * -10000.0
+        outputs = self.model(input_ids=input_ids, attention_mask=additive_mask)
+        return outputs.start_logits, outputs.end_logits
+
+
+def _load_checkpoint_weights(checkpoint_path: Path) -> dict:
+    try:
+        return torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    except TypeError:
+        logger.warning("Current torch version does not support weights_only=True; falling back to default torch.load.")
+        return torch.load(checkpoint_path, map_location="cpu")
 
 
 def export_to_onnx(
@@ -50,19 +72,22 @@ def export_to_onnx(
     from model.config import build_config
     
     config = build_config(model_name_or_path)
+    if hasattr(config, "_attn_implementation"):
+        config._attn_implementation = "eager"
+    if hasattr(config, "attn_implementation"):
+        config.attn_implementation = "eager"
     model = DistilBertForQuestionAnswering(config=config)
     
     # Load weights từ checkpoint
-    checkpoint = torch.load(
-        Path(model_path) / "pytorch_model.bin",
-        map_location="cpu"
-    )
+    checkpoint = _load_checkpoint_weights(Path(model_path) / "pytorch_model.bin")
     model.load_state_dict(checkpoint)
     model.eval()
+    onnx_model = ONNXQuestionAnsweringWrapper(model)
+    onnx_model.eval()
     
     # Create dummy input
-    dummy_input_ids = torch.randint(0, 1000, (1, 384))
-    dummy_attention_mask = torch.ones((1, 384))
+    dummy_input_ids = torch.randint(0, config.vocab_size, (1, 384), dtype=torch.long)
+    dummy_attention_mask = torch.ones((1, 384), dtype=torch.long)
     
     logger.info("Exporting to ONNX...")
     
@@ -70,7 +95,7 @@ def export_to_onnx(
     
     # Export
     torch.onnx.export(
-        model,
+        onnx_model,
         (dummy_input_ids, dummy_attention_mask),
         onnx_model_path,
         input_names=["input_ids", "attention_mask"],
@@ -149,7 +174,13 @@ def main():
         "--quantize",
         action="store_true",
         default=True,
-        help="Apply int8 quantization",
+        help="Apply int8 quantization (default: enabled)",
+    )
+    parser.add_argument(
+        "--no-quantize",
+        dest="quantize",
+        action="store_false",
+        help="Disable int8 quantization",
     )
     
     args = parser.parse_args()

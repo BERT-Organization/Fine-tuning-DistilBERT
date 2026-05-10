@@ -38,7 +38,10 @@ Dự án chuyển pipeline Fine-tuning DistilBERT sang bài toán **hỏi đáp 
 ### Export và inference
 
 - `scripts/export_onnx.py`: export checkpoint sang ONNX và tạo bản int8 quantized.
-- `scripts/inference_onnx.py`: demo inference bằng ONNX Runtime.
+- `scripts/export_onnx.py` hỗ trợ tắt quantization bằng `--no-quantize`.
+- `scripts/inference_onnx.py`: demo inference ONNX Runtime với post-processing top-k span search.
+- `scripts/flatten_squad.py`: convert dữ liệu SQuAD JSON lồng sang JSONL flatten.
+- `tests/test_pipeline_unittest.py`: unit tests cho flatten + answer span preprocessing.
 
 ### Tài liệu
 
@@ -59,10 +62,8 @@ Dự án đã có pipeline chính cho:
 - Nạp lại best model cuối training nếu `load_best_model` bật.
 - Export ONNX và chạy inference demo.
 
-## Những điểm nên kiểm thử tiếp
+## Kiểm chứng đã chạy
 
-- Chạy một epoch nhỏ trên subset để xác nhận toàn bộ luồng train hoạt động trong môi trường hiện tại.
-- Kiểm tra schema thực tế của `taidng/UIT-ViQuAD2.0` sau khi load, nhất là cột `answers` và split validation.
-- Tối ưu post-processing span (hiện đang dùng argmax start/end độc lập, có giới hạn độ dài).
-- Cải thiện inference post-processing để chọn span hợp lệ tốt nhất, có giới hạn độ dài và lọc special tokens.
-- Thêm test cho chuyển đổi dataset SQuAD lồng sang dạng flatten.
+- `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` (PASS 3/3).
+- Smoke test `scripts/flatten_squad.py` với SQuAD mẫu (convert thành công, output JSONL hợp lệ).
+- Kiểm tra CLI `--help` cho `scripts/export_onnx.py` và `scripts/inference_onnx.py` để xác nhận option mới.

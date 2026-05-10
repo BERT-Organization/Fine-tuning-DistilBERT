@@ -1,0 +1,11 @@
+model_name: distilbert-base-multilingual-cased
+dataset_name: null
+train_file: data/train.json
+validation_file: data/valid.json
+
+max_length: 384
+doc_stride: 128
+batch_size: 8
+epochs: 5
+learning_rate: 2.0e-5
+output_dir: outputs/checkpoints/local_run

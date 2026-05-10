@@ -135,6 +135,11 @@ def _build_validation_eval_inputs(
                     metric_answer_starts[0] = aligned_start
 
         contexts.append(metric_context)
+        # evaluate.squad yêu cầu mỗi sample có ít nhất 1 ground-truth answer text.
+        # Với unanswerable samples, dùng empty-string answer để tránh crash max([]).
+        if len(metric_answer_texts) == 0:
+            metric_answer_texts = [""]
+            metric_answer_starts = [0]
         references.append(
             {
                 "id": str(feature_idx),

@@ -238,10 +238,30 @@ def compute_metrics(eval_preds) -> dict:
     if len(filtered_references) == 0:
         return {"exact_match": 0.0, "f1": 0.0}
 
+    # Defensive sanitize: metric SQuAD cần answers.text không rỗng cho từng reference.
+    sanitized_references = []
+    for ref in filtered_references:
+        answers = ref.get("answers", {}) if isinstance(ref, dict) else {}
+        texts = list(answers.get("text", [])) if isinstance(answers, dict) else []
+        starts = list(answers.get("answer_start", [])) if isinstance(answers, dict) else []
+
+        if len(texts) == 0:
+            texts = [""]
+            starts = [0]
+        elif len(starts) < len(texts):
+            starts = starts + [0] * (len(texts) - len(starts))
+
+        sanitized_references.append(
+            {
+                "id": str(ref.get("id")),
+                "answers": {"text": texts, "answer_start": starts},
+            }
+        )
+
     squad_metric = _load_squad_metric()
     metric_result = squad_metric.compute(
         predictions=predictions,
-        references=filtered_references,
+        references=sanitized_references,
     )
     return {
         "exact_match": float(metric_result.get("exact_match", 0.0)),

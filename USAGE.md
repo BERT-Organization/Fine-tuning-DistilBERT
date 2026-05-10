@@ -161,6 +161,11 @@ outputs/onnx/
 ```
 
 CLI hiện bật quantization int8 theo mặc định.
+Tắt quantization:
+
+```bash
+python scripts/export_onnx.py --no-quantize
+```
 
 ## 8. Inference bằng ONNX Runtime
 
@@ -172,8 +177,23 @@ python scripts/inference_onnx.py \
 ```
 
 Script ưu tiên `model_quantized.onnx`; nếu file này không tồn tại thì dùng `model.onnx`.
+Post-processing hiện dùng top-k span search (`--n_best_size`) + giới hạn `--max_answer_length` để chọn span hợp lệ tốt hơn thay vì argmax độc lập.
 
-## 9. Lưu ý về tách từ tiếng Việt
+## 9. Convert SQuAD JSON lồng sang JSONL flatten
+
+```bash
+python scripts/flatten_squad.py \
+  --input_file data/squad_nested.json \
+  --output_file data/squad_flatten.jsonl
+```
+
+## 10. Chạy unit test nhanh
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+## 11. Lưu ý về tách từ tiếng Việt
 
 `config/defaults.yaml` có tham số:
 
@@ -184,7 +204,7 @@ segmentation_tool: underthesea
 
 Trong bài toán extractive QA, segmentation bằng `underthesea` có thể chèn `_` làm lệch offset ký tự. Pipeline hiện đã xử lý bằng thuật toán align (`align_segmentation_offset`) để map `answer_start` từ raw context sang segmented context trước tokenization.
 
-## 10. Xử lý lỗi thường gặp
+## 12. Xử lý lỗi thường gặp
 
 OOM trên GPU:
 

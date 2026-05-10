@@ -108,36 +108,12 @@ Schema SQuAD gốc thường có dạng:
 }
 ```
 
-Code hiện dùng `datasets.load_dataset("json")` cho file local, nên dạng flatten thường an toàn hơn. Nếu dữ liệu đang ở SQuAD JSON lồng, nên chuyển sang list/JSONL trước khi train.
+Code hiện dùng `datasets.load_dataset("json")` cho file local, nên dạng flatten thường an toàn hơn. Nếu dữ liệu đang ở SQuAD JSON lồng, dùng script chính thức:
 
-Ví dụ script chuyển đổi:
-
-```python
-import json
-
-with open("squad.json", encoding="utf-8") as f:
-    raw = json.load(f)
-
-rows = []
-for article in raw["data"]:
-    for paragraph in article["paragraphs"]:
-        context = paragraph["context"]
-        for qa in paragraph["qas"]:
-            answers = qa.get("answers", [])
-            rows.append({
-                "id": qa.get("id"),
-                "question": qa["question"],
-                "context": context,
-                "answers": {
-                    "text": [a["text"] for a in answers],
-                    "answer_start": [a["answer_start"] for a in answers],
-                },
-                "is_impossible": qa.get("is_impossible", False),
-            })
-
-with open("train_flatten.jsonl", "w", encoding="utf-8") as f:
-    for row in rows:
-        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+```bash
+python scripts/flatten_squad.py \
+  --input_file data/squad_nested.json \
+  --output_file data/train_flatten.jsonl
 ```
 
 ## 5. Quy tắc cho `answers`

@@ -74,7 +74,10 @@ Fine-tuning-DistilBERT/
 ├── scripts/
 │   ├── train.py               # Entry point fine-tuning
 │   ├── export_onnx.py         # Export ONNX và quantization
-│   └── inference_onnx.py      # Demo inference bằng ONNX Runtime
+│   ├── inference_onnx.py      # Demo inference bằng ONNX Runtime
+│   └── flatten_squad.py       # Convert SQuAD JSON lồng -> JSONL flatten
+├── tests/
+│   └── test_pipeline_unittest.py  # Unit tests cho preprocessing/flatten
 └── outputs/                   # Checkpoint và model export sinh ra khi chạy
 ```
 
@@ -126,6 +129,7 @@ python scripts/export_onnx.py \
 ```
 
 Script CLI hiện quantize int8 theo mặc định và lưu tokenizer cùng thư mục ONNX.
+Có thể tắt quantization bằng `--no-quantize`.
 
 ## Inference ONNX
 
