@@ -301,6 +301,16 @@ def prepare_eval_features(
 
     # Keep sample mapping và offset mapping cho post-processing
     sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
+    offset_mapping = tokenized_examples["offset_mapping"]
+
+    # Chỉ giữ offset cho tokens thuộc context; token khác gán None.
+    context_index = 1 if pad_on_right else 0
+    for i in range(len(offset_mapping)):
+        sequence_ids = tokenized_examples.sequence_ids(batch_index=i)
+        offset_mapping[i] = [
+            o if sequence_ids[k] == context_index else None
+            for k, o in enumerate(offset_mapping[i])
+        ]
 
     # Add sample IDs for later matching with predictions
     tokenized_examples["sample_id"] = sample_mapping

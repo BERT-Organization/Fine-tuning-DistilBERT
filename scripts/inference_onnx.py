@@ -83,6 +83,7 @@ def run_inference_onnx(
 
     # Advanced span post-processing: top-k start/end pairs với ràng buộc hợp lệ.
     offset_mapping = encoding["offset_mapping"][0]
+    sequence_ids = encoding.sequence_ids(0)
     start_indexes = np.argsort(start_logits)[-n_best_size:][::-1]
     end_indexes = np.argsort(end_logits)[-n_best_size:][::-1]
 
@@ -93,6 +94,10 @@ def run_inference_onnx(
             if end_idx < start_idx:
                 continue
             if end_idx - start_idx + 1 > max_answer_length:
+                continue
+
+            # Chỉ lấy span trong context (sequence_id=1 khi padding_side='right').
+            if sequence_ids[start_idx] != 1 or sequence_ids[end_idx] != 1:
                 continue
 
             start_char, _ = offset_mapping[start_idx]

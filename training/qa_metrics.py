@@ -199,9 +199,8 @@ def compute_metrics(eval_preds) -> dict:
         return {"exact_match": 0.0, "f1": 0.0}
 
     predictions: list[dict] = []
+    n_best_size = 20
     for idx in range(n_samples):
-        s_idx = int(np.argmax(start_logits[idx]))
-        e_idx = int(np.argmax(end_logits[idx]))
         offsets = offset_mappings[idx]
         context = contexts[idx]
 
@@ -209,25 +208,42 @@ def compute_metrics(eval_preds) -> dict:
         if not isinstance(offsets, list):
             offsets = list(offsets)
 
-        # Kiểm tra biên và điều kiện span hợp lệ trước khi cắt context.
-        if 0 <= s_idx < len(offsets) and 0 <= e_idx < len(offsets):
-            if e_idx < s_idx:
-                e_idx = s_idx
-            if (e_idx - s_idx + 1) > max_answer_length:
-                e_idx = s_idx + max_answer_length - 1
+        start_indexes = np.argsort(start_logits[idx])[-n_best_size:][::-1]
+        end_indexes = np.argsort(end_logits[idx])[-n_best_size:][::-1]
 
-            if 0 <= e_idx < len(offsets):
-                start_char, _ = offsets[s_idx]
-                _, end_char = offsets[e_idx]
+        best_score = float("-inf")
+        best_text = ""
+        for s_idx in start_indexes:
+            for e_idx in end_indexes:
+                if e_idx < s_idx:
+                    continue
+                if (e_idx - s_idx + 1) > max_answer_length:
+                    continue
+                if not (0 <= s_idx < len(offsets) and 0 <= e_idx < len(offsets)):
+                    continue
 
-                # Một số tokenizer trả về (0, 0) cho special tokens -> coi như no-answer.
-                if (
+                s_offset = offsets[s_idx]
+                e_offset = offsets[e_idx]
+                if s_offset is None or e_offset is None:
+                    continue
+
+                start_char, _ = s_offset
+                _, end_char = e_offset
+                if not (
                     isinstance(start_char, (int, np.integer))
                     and isinstance(end_char, (int, np.integer))
                     and end_char > start_char >= 0
                     and end_char <= len(context)
                 ):
-                    pred_text = context[start_char:end_char].strip()
+                    continue
+
+                cand_text = context[start_char:end_char].strip()
+                cand_score = float(start_logits[idx][s_idx] + end_logits[idx][e_idx])
+                if cand_score > best_score:
+                    best_score = cand_score
+                    best_text = cand_text
+
+        pred_text = best_text
 
         predictions.append({"id": str(example_ids[idx]), "prediction_text": pred_text})
 
