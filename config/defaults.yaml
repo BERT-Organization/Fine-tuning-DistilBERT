@@ -54,7 +54,7 @@ gradient_accumulation_steps: 1
 # ── Output & Logging ────────────────────────────────────────────────────────────
 output_dir: outputs/checkpoints
 save_best_model: true
-best_metric: exact_match         # Lưu model dựa vào metric này (EM hoặc f1)
+best_metric: f1                  # Lưu model dựa vào metric này (exact_match hoặc f1)
 eval_strategy: epoch             # Evaluate sau mỗi epoch
 save_strategy: epoch             # Lưu checkpoint sau mỗi epoch
 

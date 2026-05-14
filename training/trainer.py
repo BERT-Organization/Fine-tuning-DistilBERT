@@ -336,8 +336,14 @@ def train(config: TrainingConfig) -> None:
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Theo yêu cầu: chọn best model theo F1, evaluate/save mỗi epoch.
-    metric_for_best_model = "f1"
+    # Select best checkpoint by configured metric.
+    metric_for_best_model = (config.best_metric or "f1").strip()
+    if metric_for_best_model not in {"exact_match", "f1"}:
+        logger.warning(
+            "Unsupported best_metric=%s. Falling back to 'f1'.",
+            metric_for_best_model,
+        )
+        metric_for_best_model = "f1"
     greater_is_better = True
     best_metric_value = float("-inf") if greater_is_better else float("inf")
     best_path = output_dir / "best_model"
@@ -423,7 +429,7 @@ def train(config: TrainingConfig) -> None:
                 avg_valid_loss = valid_loss / valid_steps
                 logger.info(f"Valid Loss: {avg_valid_loss:.4f}")
 
-                # Save best model theo metric_for_best_model="f1".
+                # Save best model by configured metric.
                 if config.save_best_model and epoch_metrics is not None:
                     current_metric_value = float(epoch_metrics.get(metric_for_best_model, 0.0))
                     is_better = current_metric_value > best_metric_value if greater_is_better else current_metric_value < best_metric_value

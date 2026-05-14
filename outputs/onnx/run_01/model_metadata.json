@@ -1,0 +1,48 @@
+{
+  "model_name": "distilbert-base-multilingual-cased",
+  "export_time_utc": "2026-05-14T10:04:15.140228+00:00",
+  "git_commit": "3ae18c576b5dd8969bdbbd813c403215c976b3c6",
+  "checkpoint_dir": "outputs/checkpoints/experiment_01/best_model",
+  "quantized": true,
+  "onnx": {
+    "model_path": "outputs/onnx/run_01/model.onnx",
+    "model_size_bytes": 539081706,
+    "quantized_model_path": "outputs/onnx/run_01/model_quantized.onnx",
+    "quantized_model_size_bytes": 135165713
+  },
+  "tokenizer": {
+    "tokenizer_json_path": "outputs/onnx/run_01/tokenizer.json",
+    "tokenizer_config_path": "outputs/onnx/run_01/tokenizer_config.json"
+  },
+  "runtime": {
+    "max_length": 384,
+    "opset_version": 14
+  },
+  "checkpoint_config": {
+    "activation": "gelu",
+    "architectures": [
+      "DistilBertForMaskedLM"
+    ],
+    "attention_dropout": 0.1,
+    "bos_token_id": null,
+    "dim": 768,
+    "dropout": 0.1,
+    "eos_token_id": null,
+    "hidden_dim": 3072,
+    "initializer_range": 0.02,
+    "max_position_embeddings": 512,
+    "model_type": "distilbert",
+    "n_heads": 12,
+    "n_layers": 6,
+    "output_past": true,
+    "pad_token_id": 0,
+    "qa_classifier_dropout": 0.1,
+    "qa_dropout": 0.1,
+    "seq_classif_dropout": 0.2,
+    "sinusoidal_pos_embds": false,
+    "tie_weights_": true,
+    "tie_word_embeddings": true,
+    "transformers_version": "5.8.0",
+    "vocab_size": 119547
+  }
+}

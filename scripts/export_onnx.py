@@ -11,6 +11,9 @@ import logging
 import sys
 from pathlib import Path
 import argparse
+import datetime as dt
+import json
+import subprocess
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
@@ -46,6 +49,68 @@ def _load_checkpoint_weights(checkpoint_path: Path) -> dict:
         return torch.load(checkpoint_path, map_location="cpu")
 
 
+def _read_json_file(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _resolve_git_commit() -> str | None:
+    try:
+        output = subprocess.check_output(
+            ["git", "-C", str(ROOT_DIR), "rev-parse", "HEAD"],
+            text=True,
+        )
+        commit = output.strip()
+        return commit if commit else None
+    except Exception:
+        return None
+
+
+def _write_model_metadata(
+    output_dir: Path,
+    model_name_or_path: str,
+    checkpoint_dir: Path,
+    quantized: bool,
+    max_length: int,
+) -> None:
+    onnx_path = output_dir / "model.onnx"
+    quantized_path = output_dir / "model_quantized.onnx"
+    tokenizer_json = output_dir / "tokenizer.json"
+    tokenizer_config = output_dir / "tokenizer_config.json"
+    config_json = checkpoint_dir / "config.json"
+
+    metadata = {
+        "model_name": model_name_or_path,
+        "export_time_utc": dt.datetime.now(dt.UTC).isoformat(),
+        "git_commit": _resolve_git_commit(),
+        "checkpoint_dir": str(checkpoint_dir),
+        "quantized": quantized,
+        "onnx": {
+            "model_path": str(onnx_path),
+            "model_size_bytes": onnx_path.stat().st_size if onnx_path.exists() else None,
+            "quantized_model_path": str(quantized_path) if quantized_path.exists() else None,
+            "quantized_model_size_bytes": quantized_path.stat().st_size if quantized_path.exists() else None,
+        },
+        "tokenizer": {
+            "tokenizer_json_path": str(tokenizer_json),
+            "tokenizer_config_path": str(tokenizer_config),
+        },
+        "runtime": {
+            "max_length": max_length,
+            "opset_version": 14,
+        },
+        "checkpoint_config": _read_json_file(config_json),
+    }
+
+    metadata_path = output_dir / "model_metadata.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+    logger.info("✓ Metadata saved to %s", metadata_path)
+
+
 def export_to_onnx(
     model_path: str,
     output_dir: str = "outputs/onnx",
@@ -70,7 +135,8 @@ def export_to_onnx(
     # Load model
     from model.modeling import DistilBertForQuestionAnswering
     from model.config import build_config
-    
+
+    checkpoint_dir = Path(model_path)
     config = build_config(model_name_or_path)
     if hasattr(config, "_attn_implementation"):
         config._attn_implementation = "eager"
@@ -79,7 +145,7 @@ def export_to_onnx(
     model = DistilBertForQuestionAnswering(config=config)
     
     # Load weights từ checkpoint
-    checkpoint = _load_checkpoint_weights(Path(model_path) / "pytorch_model.bin")
+    checkpoint = _load_checkpoint_weights(checkpoint_dir / "pytorch_model.bin")
     model.load_state_dict(checkpoint)
     model.eval()
     onnx_model = ONNXQuestionAnsweringWrapper(model)
@@ -148,6 +214,14 @@ def export_to_onnx(
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
     tokenizer.save_pretrained(output_dir)
     logger.info(f"✓ Tokenizer saved to {output_dir}")
+
+    _write_model_metadata(
+        output_dir=output_dir,
+        model_name_or_path=model_name_or_path,
+        checkpoint_dir=checkpoint_dir,
+        quantized=quantize,
+        max_length=384,
+    )
 
 
 def main():

@@ -3,4 +3,10 @@ __pycache__/
 .venv/
 .env
 .ipynb_checkpoints/
-outputs
+# Training artifacts
+outputs/checkpoints/
+outputs/my_experiment/
+
+# ONNX and model binaries
+outputs/onnx/**/*.onnx
+outputs/**/*.bin

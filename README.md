@@ -117,7 +117,7 @@ outputs/checkpoints/
     └── tokenizer files...
 ```
 
-`best_model` hiện được chọn theo `f1` cao nhất trên validation; cuối train sẽ nạp lại best checkpoint nếu `load_best_model` bật.
+`best_model` được chọn theo `best_metric` trong config (mặc định `f1`); cuối train sẽ nạp lại best checkpoint nếu `load_best_model` bật.
 
 ## Export ONNX
 
@@ -130,6 +130,7 @@ python scripts/export_onnx.py \
 
 Script CLI hiện quantize int8 theo mặc định và lưu tokenizer cùng thư mục ONNX.
 Có thể tắt quantization bằng `--no-quantize`.
+Sau khi export, script cũng sinh `model_metadata.json` để runtime RAG có thể validate artifact trước khi khởi động.
 
 ## Inference ONNX
 
