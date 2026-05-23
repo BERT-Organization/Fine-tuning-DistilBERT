@@ -8,16 +8,12 @@ Công dụng:
 """
 
 import logging
-import sys
 from pathlib import Path
 import argparse
 import datetime as dt
+import hashlib
 import json
 import subprocess
-
-ROOT_DIR = Path(__file__).resolve().parent.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
 
 import torch
 import torch.nn as nn
@@ -26,6 +22,7 @@ from onnxruntime.quantization import quantize_dynamic, QuantType
 from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 class ONNXQuestionAnsweringWrapper(nn.Module):
@@ -58,6 +55,17 @@ def _read_json_file(path: Path) -> dict | None:
         return None
 
 
+def _sha256_file(path: Path) -> str | None:
+    if not path.exists():
+        return None
+
+    hasher = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def _resolve_git_commit() -> str | None:
     try:
         output = subprocess.check_output(
@@ -87,17 +95,24 @@ def _write_model_metadata(
         "model_name": model_name_or_path,
         "export_time_utc": dt.datetime.now(dt.UTC).isoformat(),
         "git_commit": _resolve_git_commit(),
+        "artifact_version": "run_01",
         "checkpoint_dir": str(checkpoint_dir),
         "quantized": quantized,
         "onnx": {
             "model_path": str(onnx_path),
             "model_size_bytes": onnx_path.stat().st_size if onnx_path.exists() else None,
+            "model_sha256": _sha256_file(onnx_path),
             "quantized_model_path": str(quantized_path) if quantized_path.exists() else None,
             "quantized_model_size_bytes": quantized_path.stat().st_size if quantized_path.exists() else None,
+            "quantized_model_sha256": _sha256_file(quantized_path),
         },
         "tokenizer": {
             "tokenizer_json_path": str(tokenizer_json),
+            "tokenizer_json_size_bytes": tokenizer_json.stat().st_size if tokenizer_json.exists() else None,
+            "tokenizer_json_sha256": _sha256_file(tokenizer_json),
             "tokenizer_config_path": str(tokenizer_config),
+            "tokenizer_config_size_bytes": tokenizer_config.stat().st_size if tokenizer_config.exists() else None,
+            "tokenizer_config_sha256": _sha256_file(tokenizer_config),
         },
         "runtime": {
             "max_length": max_length,

@@ -2,13 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
-from pathlib import Path
 from typing import Sequence
-
-ROOT_DIR = Path(__file__).resolve().parent.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
 
 from training.config import TrainingConfig
 from training.trainer import train
@@ -53,10 +47,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Main training entry point."""
-    
     args = parse_args(argv=argv)
 
     # Load config từ YAML
+    from pathlib import Path
+
     config_path = Path(args.config)
     if config_path.exists():
         config = TrainingConfig.from_yaml(str(config_path))
@@ -82,5 +77,4 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-
 

@@ -1,18 +1,25 @@
 {
   "model_name": "distilbert-base-multilingual-cased",
-  "export_time_utc": "2026-05-14T10:04:15.140228+00:00",
-  "git_commit": "3ae18c576b5dd8969bdbbd813c403215c976b3c6",
+  "export_time_utc": "2026-05-20T06:33:30.246682+00:00",
+  "git_commit": "4ebd316305f508d6fa6f12209fc3ece13c05a54d",
+  "artifact_version": "run_01",
   "checkpoint_dir": "outputs/checkpoints/experiment_01/best_model",
   "quantized": true,
   "onnx": {
     "model_path": "outputs/onnx/run_01/model.onnx",
     "model_size_bytes": 539081706,
+    "model_sha256": "0eed9f14313dddf650fac54a36dbf118300d4c2d618b7232c2a0812dfb7788cd",
     "quantized_model_path": "outputs/onnx/run_01/model_quantized.onnx",
-    "quantized_model_size_bytes": 135165713
+    "quantized_model_size_bytes": 135165713,
+    "quantized_model_sha256": "f886179c7bd0680824fc9bc11d81888ed61c2a9c0ce298215f8c5772f14f44ff"
   },
   "tokenizer": {
     "tokenizer_json_path": "outputs/onnx/run_01/tokenizer.json",
-    "tokenizer_config_path": "outputs/onnx/run_01/tokenizer_config.json"
+    "tokenizer_json_size_bytes": 1733573,
+    "tokenizer_json_sha256": "bf1b59b7b11c95f194f51708d918eea378e09d05f84c0e1656dc5180e8117088",
+    "tokenizer_config_path": "outputs/onnx/run_01/tokenizer_config.json",
+    "tokenizer_config_size_bytes": 596,
+    "tokenizer_config_sha256": "9cd988573a9588a6085cd353eeefa09b803dba75b03f58d0c1d302aad3078193"
   },
   "runtime": {
     "max_length": 384,

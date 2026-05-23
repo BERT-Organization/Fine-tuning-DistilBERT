@@ -19,6 +19,7 @@ Dự án này fine-tune **DistilBERT multilingual cased** cho bài toán **extra
 ```bash
 cd /home/quagntam/Projects/Fine-tuning-DistilBERT
 pip install -r requirements.txt
+pip install -e .
 ```
 
 Nếu dùng CUDA, hãy bảo đảm phiên bản `torch` trong môi trường phù hợp với driver/GPU hiện tại.
@@ -34,7 +35,7 @@ python scripts/train.py
 Train với tham số tùy chỉnh:
 
 ```bash
-python scripts/train.py \
+ft-train \
   --epochs 5 \
   --batch_size 8 \
   --learning_rate 2e-5 \
@@ -44,7 +45,7 @@ python scripts/train.py \
 Train bằng dataset local:
 
 ```bash
-python scripts/train.py \
+ft-train \
   --dataset_name "" \
   --train_file data/train.json \
   --validation_file data/valid.json
@@ -122,7 +123,7 @@ outputs/checkpoints/
 ## Export ONNX
 
 ```bash
-python scripts/export_onnx.py \
+ft-export-onnx \
   --model_path outputs/checkpoints/best_model \
   --output_dir outputs/onnx \
   --model_name distilbert-base-multilingual-cased
@@ -135,7 +136,7 @@ Sau khi export, script cũng sinh `model_metadata.json` để runtime RAG có th
 ## Inference ONNX
 
 ```bash
-python scripts/inference_onnx.py \
+ft-inference-onnx \
   --model_dir outputs/onnx \
   --question "Hà Nội là thủ đô của nước nào?" \
   --context "Hà Nội là thủ đô của Việt Nam. Thành phố nằm ở phía Bắc Việt Nam."
